@@ -1,0 +1,268 @@
+---
+title: "HowTo: Querying online Data"
+author: "Jeff Gentry and Robert Gentleman"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  BiocStyle::html_document
+vignette: >
+  %\VignetteIndexEntry{ HowTo: Querying online Data }
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+%
+% NOTE -- ONLY EDIT THE .Rnw FILE!!!  The .tex file is
+% likely to be overwritten.
+%
+
+
+% \VignetteIndexEntry{HOWTO: Use the online query tools}
+% \VignetteDepends{annotate, hgu95av2.db}
+% \VignetteKeywords{Expression Analysis, Annotation}
+
+\newcommand{\Rfunction}[1]{{\texttt{#1}}}
+\newcommand{\Rmethod}[1]{{\texttt{#1}}}
+
+\newcommand{\Robject}[1]{{\texttt{#1}}}
+\newcommand{\Rpackage}[1]{{*#1*}}
+\newcommand{\Rclass}[1]{{*#1*}}
+
+\usepackage{hyperref}
+
+\usepackage[authoryear,round]{natbib}
+\usepackage{times}
+
+\bibliographystyle{plainnat}
+
+
+## Overview
+
+This article demonstrates how you can make use of the tools that have
+been provided for on-line querying of data resources. These tools rely
+on others (such as the NLM and NCBI) providing and documenting
+appropriate web interfaces. The tools described here allow you to
+either retrieve the data (usually in XML) or have it rendered in a
+browser on the local machine. To do this you will need the
+`r Biocpkg("Biobase")`, `r Biocpkg("XML")`, and `r Biocpkg("annotate")` packages.
+The functionality in this article was first described in
+[@PubMedRnews], although some enhancements have been
+made since the writing of that article.
+
+Assembling and using meta-data annotation is a non-trivial task. In
+the Bioconductor Project we have developed tools to support two
+different methods of accessing meta-data. One is based on obtaining
+data from a variety of sources, of curating it and packaging it in a
+form that is suitable for analysing microarray data. The second method
+is to make use of on-line resources such as those provided by NLM and
+NCBI. The functions described in this vignette provide infrastructure
+for that second type of meta-data usage.
+
+We first describe the functions that allow users to specify queries
+and open the appropriate web page on their local machine. Then, we
+investigate the much richer set of tools that are provided by NLM for
+accessing and working with PubMed data.
+
+## Using the Browser
+
+There are currently four functions that provide functionality for
+accessing online data resources.
+They are:
+- [genbank] Users specify GenBank identifiers and
+can request them to be rendered in the browser or returned in XML.
+- [pubmed] Users specify PubMed identifiers and can request them to
+be rendered in the browser or returned in XML. More details on parsing
+and manipulating the XML are given below.
+- [entrezGeneByID] Users specify Entrez Gene identifiers and the
+appropriate links are opened in the browser. Entrez Gene does not
+provide XML so there is no download option, currently. The user can
+request that the URL be rendered or returned.
+- [entrezGeneQuery] Users specify a string that will be used as the
+Entrez Gene query and the species of interest (there can be
+several). The user can request either that the URL be rendered or returned.
+
+
+Both `genbank` and `pubmed` can return XML
+versions of the data. These returned values can subsequently be
+processed using functionality provided by the `r Biocpkg("XML")` package
+[@XML]. Specific details and examples for PubMed are given in
+Section~\@ref(sec:pmq).
+
+The function `entrezGeneByID` takes a set of known Entrez Gene
+identifiers and constructs a URL that will have these rendered. The
+user can either save the URL (perhaps to send to someone else or to
+embed in an HTML page, see the vignette on creating HTML output for
+more details).
+
+The function `entrezGeneQuery` takes a character string to be
+used for querying PubMed. For example, this function call,
+  entrezGeneQuery("leukemia", "Homo sapiens")
+will find all Human genes that have the word leukemia associated with them
+in their Entrez Gene records. Note that the R code is merely an
+interface to the services provided by NLM and NCBI and users are
+referred to those sites for complete descriptions of the algorithms
+they use for searching etc.
+
+## Accessing PubMed information
+{#sec:pmq}
+
+In this section we demonstrate how to query PubMed and how to operate
+on the data that are returned. As noted above, these queries generate
+XML, which must then be parsed to provide the specific data items of
+interest. Our example is based on the `sample.ExpressionSet`
+data from the package `r Biocpkg("Biobase")`. Users should be able to
+easily replace these data with their own.
+
+```{r data}
+library("annotate")
+data(sample.ExpressionSet)
+affys <- featureNames(sample.ExpressionSet)[490:500]
+affys
+```
+
+Here we have selected an arbitrary set of 11 genes to be interested in
+from our sample data.  However, \verb+sample.ExpressionSet+ provided us with
+Affymetrix identifiers, and for the \verb+pubmed+ function, we need to
+use PubMed ID values.  To obtain these, we can use the annotation
+tools within `r Biocpkg("annotate")`.
+
+```{r annotation}
+library("hgu95av2.db")
+ids <- getPMID(affys,"hgu95av2")
+ids <- unlist(ids,use.names=FALSE)
+ids <- unique(ids[!is.na(as.numeric(ids))])
+length(ids)
+ids[1:10]
+```
+
+We use `getPMID` to obtain the PubMed identifiers that are
+related to our probes of interest. Then we process these to leave out
+any that have no PMIDs and we remove duplicates as well. The mapping
+to PMIDs are actually based on Entrez Gene identifiers and since the
+mapping from Affymetrix IDs to Entrz Gene is many to one there is some
+chance of duplication. From our initial `r length(affys)`
+Affymetrix identifiers we see that there are `r length(ids)`
+unique PubMed identifiers (i.e. papers).
+
+For each of these papers we can obtain information, such as the title,
+the authors, the abstract, the Entrez Gene identifiers for genes that
+are referred to in the paper and many other pieces of
+information. Again, for a complete listing and description the reader
+is referred to the NLM website.
+
+We next generate the query and store the results in a variable named
+`x`. This object is of class `XMLDocument` and to
+manipulate it we will use functions provided by the XML package.
+
+```{r getabsts}
+x <- pubmed(ids[1:10])
+a <- xmlRoot(x)
+numAbst <- length(xmlChildren(a))
+numAbst
+```
+
+Our search of the `r length(ids)` PubMed IDs (from the
+`r length(affys)` Affymetrix IDs) has
+resulted in `r numAbst` abstracts from PubMed (stored
+in R using XML format).  The `r Biocpkg("annotate")` package also provides a
+`pubMedAbst` class, which will take the raw XML format from a
+call to `pubmed` and extract the interesting sections for
+easy review.
+
+```{r }
+arts <- vector("list", length=numAbst)
+absts <- rep(NA, numAbst)
+for (i in 1:numAbst) {
+   ## Generate the PubMedAbst object for this abstract
+   arts[[i]] <- buildPubMedAbst(a[[i]])
+   ## Retrieve the abstract text for this abstract
+   absts[i] <- abstText(arts[[i]])
+}
+arts[[7]]
+```
+
+In the S language we say that the `pubMedAbst` class has a
+number of different slots. They are:
+- [authors] The vector of authors.
+- [pmid] The PubMed record number.
+- [abstText] The actual abstract (in text).
+- [articleTitle] The title of the article.
+- [journal] The journal it is published in.
+- [pubDate] The publication date.
+These can all be individually extracted utilizing the provided methods,
+such as `abstText` in the above example.
+As you can see, the `pubMedAbst` class provides several key
+pieces of information: authors, abstract text, article title, journal,
+and the publication date of the journal.
+
+Once the abstracts have been assembled you can search them using any
+of the standard search techniques. Suppose for example we wanted to
+know which abstracts have the term \texttt{cDNA} in them, then the
+following code chunk shows how to identify these abstracts.
+
+```{r }
+found <- grep("cDNA",absts)
+goodAbsts <- arts[found]
+length(goodAbsts)
+```
+
+So `r length(goodAbsts)` of the articles relating to our genes of
+interest mention the term \texttt{cDNA} in their abstracts.
+
+Lastly, as a demonstration for how one can use the \verb+query+
+toolset to cross reference several databases, we can use the same set
+of PubMed IDs with another function.  In this example, the
+`genbank` function is used with the argument
+`type="uid"`.  By default, the `genbank` function
+assumes that the id values passed in are Genbank accession numbers,
+but we currently have PubMed ID values that we want to use.  The
+`type="uid"` argument specifies that we are using PubMed IDs
+(aka NCBI UID numbers).
+
+```{r }
+y <- genbank(ids[1:10], type="uid")
+b <- xmlRoot(y)
+```
+
+At this point the object `b` can be manipulated in a manner similar
+to `a` from the PubMed example.
+
+Also, note that both `pubmed` and `genbank` have an option
+to display the data directly in the browser instead of XML, by
+specifying {\tt disp="browser"} in the parameter listing.
+
+## Generating HTML output for your abstracts
+
+Many users find it useful to have a web page created with links for
+all of their abstracts, leading to the actual PubMed page online.
+These pages can then be distributed to other people who have an
+interest in the abstracts that you have found.  There are two formats
+for this, the first provides for a simple HTML page which has a link
+for every abstract, and the other provides for a framed HTML page with
+the links on the left and the resulting PubMed page in the main
+frame.  For these examples, we will be using temporary files:
+
+```{r abst2HTML}
+fname <- tempfile()
+pmAbst2HTML(goodAbsts, filename=fname)
+
+fnameBase <- tempfile()
+pmAbst2HTML(goodAbsts, filename=fnameBase, frames=TRUE)
+```
+
+        \begin{center}
+          \includegraphics{noframes}
+          \caption{pmAbst2HTML without frames}
+
+          \includegraphics{frames}
+          \caption{pmAbst2HTML with frames}
+        \end{center}
+
+## Session Information
+
+The version number of R and packages loaded for generating the vignette were:
+
+```{r echo=FALSE}
+sessionInfo()
+```
+
+\bibliography{annotate}
+
